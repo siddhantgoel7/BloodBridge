@@ -10,8 +10,8 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const VAPID_PUBLIC_KEY = "BOjEz5Lr0Flm_VoksTdSl-u7T8sqknDYVnkckuH8AT88WNYxdYwWo5MP59qIOgBXNpa_HetUGfLRu5iXYGJ4TyY";
-const VAPID_PRIVATE_KEY = "ofSOOdwT4uBdQhzEiLm2C-gR1qYluHEqGKwAjDs7doo";
+const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY")!;
+const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
 
 webpush.setVapidDetails(
   "mailto:support@bloodbridge.com",
@@ -41,7 +41,7 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -113,13 +113,13 @@ Deno.serve(async (req) => {
       .not("longitude", "is", null);
 
     const matches = (donors ?? [])
-      .filter((d) => !d.cooldown_until || d.cooldown_until < nowIso)
-      .map((d) => ({
+      .filter((d: any) => !d.cooldown_until || d.cooldown_until < nowIso)
+      .map((d: any) => ({
         ...d,
         distance_km: distanceKm(ticket.latitude, ticket.longitude, d.latitude!, d.longitude!),
       }))
-      .filter((d) => d.distance_km <= ticket.search_radius_km)
-      .sort((a, b) => a.distance_km - b.distance_km);
+      .filter((d: any) => d.distance_km <= ticket.search_radius_km)
+      .sort((a: any, b: any) => a.distance_km - b.distance_km);
 
     // Fetch push subscriptions for matched donors
     const donorIds = matches.map(m => m.id);
@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
     const hospitalName = (ticket.hospitals as any)?.name ?? "a nearby hospital";
 
     // Send notifications
-    const notifications = (subs ?? []).map((sub) => {
+    const notifications = (subs ?? []).map((sub: any) => {
       return webpush.sendNotification(
         sub.subscription as any,
         JSON.stringify({
@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
             url: `/donor/tickets/${ticketId}`
           }
         })
-      ).catch(e => console.error(`Failed to notify ${sub.user_id}`, e));
+      ).catch((e: Error) => console.error(`Failed to notify ${sub.user_id}`, e));
     });
 
     await Promise.all(notifications);

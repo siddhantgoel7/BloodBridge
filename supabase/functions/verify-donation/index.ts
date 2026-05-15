@@ -1,6 +1,7 @@
 // Verifies a donor's donation: scans check-in code, atomically awards points,
 // sets cooldown, increments hospital inventory, and updates ticket fulfillment.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import webpush from "https://esm.sh/web-push@3.6.7";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,10 +9,19 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY")!;
+const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
+
+webpush.setVapidDetails(
+  "mailto:support@bloodbridge.com",
+  VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY
+);
+
 const COOLDOWN_DAYS = 56;
 const POINTS = 100;
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const authHeader = req.headers.get("Authorization");
@@ -32,7 +42,7 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    const { data: ticket } = await admin.from("blood_tickets").select("*").eq("id", ticket_id).maybeSingle();
+    const { data: ticket } = await admin.from("blood_tickets").select("*, hospitals(name)").eq("id", ticket_id).maybeSingle();
     if (!ticket) return new Response(JSON.stringify({ error: "Ticket not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // Authz: caller must be staff of the hospital
@@ -89,6 +99,32 @@ Deno.serve(async (req) => {
       units_fulfilled: newFulfilled,
       status: newStatus,
     }).eq("id", ticket_id);
+
+    // 6) Send Push Notification to donor
+    const { data: subs } = await admin
+      .from("push_subscriptions")
+      .select("subscription")
+      .eq("user_id", resp.donor_id);
+
+    const hospitalName = (ticket.hospitals as any)?.name ?? "the hospital";
+
+    if (subs && subs.length > 0) {
+      const notifications = subs.map((sub: any) => {
+        return webpush.sendNotification(
+          sub.subscription,
+          JSON.stringify({
+            title: "❤️ Donation Verified!",
+            body: `Thank you for donating at ${hospitalName}! You've earned ${POINTS} points.`,
+            icon: "/pwa-192x192.png",
+            badge: "/pwa-192x192.png",
+            data: {
+              url: "/donor/history"
+            }
+          })
+        ).catch((e: Error) => console.error("Failed to send thank you note", e));
+      });
+      await Promise.all(notifications);
+    }
 
     return new Response(JSON.stringify({ success: true, points_awarded: POINTS, cooldown_until: cooldownUntil }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

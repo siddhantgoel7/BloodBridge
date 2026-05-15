@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
-const VAPID_PUBLIC_KEY = "BOjEz5Lr0Flm_VoksTdSl-u7T8sqknDYVnkckuH8AT88WNYxdYwWo5MP59qIOgBXNpa_HetUGfLRu5iXYGJ4TyY";
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
 export const usePushNotifications = () => {
   const { user } = useAuth();
@@ -34,8 +34,8 @@ export const usePushNotifications = () => {
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
       });
 
-      // @ts-ignore - push_subscriptions might not be in types yet
-      const { error } = await supabase
+      // Using 'as any' because the local types haven't been updated with the new table yet
+      const { error } = await (supabase as any)
         .from("push_subscriptions")
         .upsert({
           user_id: user.id,
