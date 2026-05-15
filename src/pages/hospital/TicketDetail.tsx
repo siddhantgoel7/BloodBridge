@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
 interface Ticket {
-  id: string; blood_type: string; units_needed: number; units_fulfilled: number;
+  id: string; hospital_id: string; blood_type: string; units_needed: number; units_fulfilled: number;
   urgency: Urgency; status: string; patient_context: string | null;
   search_radius_km: number; created_at: string; expires_at: string;
 }

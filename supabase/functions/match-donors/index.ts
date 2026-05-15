@@ -124,7 +124,7 @@ Deno.serve(async (req: Request) => {
       .sort((a: any, b: any) => a.distance_km - b.distance_km);
 
     // Fetch push subscriptions for matched donors
-    const donorIds = matches.map(m => m.id);
+    const donorIds = matches.map((m: any) => m.id);
     const { data: subs } = await admin
       .from("push_subscriptions")
       .select("user_id, subscription")
