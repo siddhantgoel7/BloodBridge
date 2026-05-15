@@ -27,6 +27,9 @@ export default defineConfig(({ mode }) => ({
         short_name: "BloodBridge",
         description: "Connecting Blood Donors with Hospitals",
         theme_color: "#ef4444",
+        background_color: "#ffffff",
+        display: "standalone",
+        start_url: "/",
         icons: [
           {
             src: "pwa-192x192.png",

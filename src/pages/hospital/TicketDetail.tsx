@@ -42,11 +42,27 @@ export default function TicketDetail() {
     setResponses((r ?? []) as any);
   };
 
+  const playPing = () => {
+    const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
+    audio.volume = 0.5;
+    audio.play().catch(() => {});
+    if (navigator.vibrate) navigator.vibrate(200);
+  };
+
   useEffect(() => {
     load();
     if (!id) return;
     const ch = supabase.channel(`ticket-${id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "ticket_responses", filter: `ticket_id=eq.${id}` }, () => load())
+      .on("postgres_changes", { 
+        event: "INSERT", 
+        schema: "public", 
+        table: "ticket_responses", 
+        filter: `ticket_id=eq.${id}` 
+      }, () => {
+        load();
+        playPing();
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "ticket_responses", filter: `ticket_id=eq.${id}` }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "blood_tickets", filter: `id=eq.${id}` }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -54,17 +70,41 @@ export default function TicketDetail() {
 
   const verifyByCode = async () => {
     if (!verifyCode) return;
-    const match = responses.find((r) => r.check_in_code.toLowerCase() === verifyCode.trim().toLowerCase());
-    if (!match) { toast.error("No matching check-in code"); return; }
-    await verify(match.id);
+    const code = verifyCode.trim().toLowerCase();
+    
+    // First try current ticket responses
+    let match = responses.find((r) => r.check_in_code.toLowerCase() === code);
+    
+    // If not found, search all tickets for this hospital
+    if (!match && ticket) {
+      const { data: globalMatch } = await supabase
+        .from("ticket_responses")
+        .select("*, ticket:blood_tickets(id, hospital_id)")
+        .ilike("check_in_code", code) // Case-insensitive search
+        .maybeSingle();
+
+      if (globalMatch && (globalMatch.ticket as any)?.hospital_id === ticket.hospital_id) {
+        match = globalMatch as any;
+      }
+    }
+
+    if (!match) {
+      toast.error("No matching check-in code found for this hospital");
+      return;
+    }
+
+    // Pass the correct ticket_id if it was found globally
+    const targetTicketId = (match as any).ticket_id || ticket.id;
+    await verify(match.id, targetTicketId);
     setVerifyCode("");
   };
 
-  const verify = async (responseId: string) => {
+  const verify = async (responseId: string, targetTicketId?: string) => {
     if (!ticket) return;
+    const finalTicketId = targetTicketId || ticket.id;
     setVerifying(responseId);
     const { data, error } = await supabase.functions.invoke("verify-donation", {
-      body: { response_id: responseId, ticket_id: ticket.id },
+      body: { response_id: responseId, ticket_id: finalTicketId },
     });
     setVerifying(null);
     if (error || data?.error) { toast.error(error?.message || data?.error); return; }
