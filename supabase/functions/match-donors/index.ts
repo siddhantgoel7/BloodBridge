@@ -1,6 +1,7 @@
 // Matches an open blood ticket to nearby compatible available donors.
 // Called by hospital staff after creating a ticket. Mocks notification dispatch.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import webpush from "https://esm.sh/web-push@3.6.7";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,6 +9,15 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+const VAPID_PUBLIC_KEY = "BOjEz5Lr0Flm_VoksTdSl-u7T8sqknDYVnkckuH8AT88WNYxdYwWo5MP59qIOgBXNpa_HetUGfLRu5iXYGJ4TyY";
+const VAPID_PRIVATE_KEY = "ofSOOdwT4uBdQhzEiLm2C-gR1qYluHEqGKwAjDs7doo";
+
+webpush.setVapidDetails(
+  "mailto:support@bloodbridge.com",
+  VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY
+);
 
 const COMPAT: Record<string, string[]> = {
   "O-":  ["O-"],
@@ -69,7 +79,7 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
     const { data: ticket, error: tErr } = await admin
-      .from("blood_tickets").select("*").eq("id", ticketId).maybeSingle();
+      .from("blood_tickets").select("*, hospitals(name)").eq("id", ticketId).maybeSingle();
     if (tErr || !ticket) {
       return new Response(JSON.stringify({ error: "Ticket not found" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -111,10 +121,33 @@ Deno.serve(async (req) => {
       .filter((d) => d.distance_km <= ticket.search_radius_km)
       .sort((a, b) => a.distance_km - b.distance_km);
 
-    // Mock notification dispatch (push + SMS would happen here)
-    for (const m of matches) {
-      console.log(`[notify] ticket=${ticketId} donor=${m.id} (${m.blood_type}) dist=${m.distance_km.toFixed(2)}km — would push + SMS to ${m.phone ?? "n/a"}`);
-    }
+    // Fetch push subscriptions for matched donors
+    const donorIds = matches.map(m => m.id);
+    const { data: subs } = await admin
+      .from("push_subscriptions")
+      .select("user_id, subscription")
+      .in("user_id", donorIds);
+
+    const hospitalName = (ticket.hospitals as any)?.name ?? "a nearby hospital";
+
+    // Send notifications
+    const notifications = (subs ?? []).map((sub) => {
+      return webpush.sendNotification(
+        sub.subscription as any,
+        JSON.stringify({
+          title: "🚨 Urgent Blood Request",
+          body: `${hospitalName} needs ${ticket.blood_type} blood. You are a nearby match!`,
+          icon: "/pwa-192x192.png",
+          badge: "/pwa-192x192.png",
+          data: {
+            ticketId: ticketId,
+            url: `/donor/tickets/${ticketId}`
+          }
+        })
+      ).catch(e => console.error(`Failed to notify ${sub.user_id}`, e));
+    });
+
+    await Promise.all(notifications);
 
     // Mark ticket in_progress
     await admin
@@ -124,7 +157,7 @@ Deno.serve(async (req) => {
       .eq("status", "open");
 
     return new Response(
-      JSON.stringify({ matched: matches.length, donors: matches.slice(0, 50) }),
+      JSON.stringify({ matched: matches.length, notifications_sent: (subs ?? []).length }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {

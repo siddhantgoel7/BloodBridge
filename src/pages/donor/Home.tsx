@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Award, Bell, Clock, Droplets } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 interface Profile {
   full_name: string; blood_type: string | null; is_available: boolean;
@@ -16,6 +17,7 @@ interface Profile {
 
 export default function Home() {
   const { user } = useAuth();
+  const { permission, requestPermission } = usePushNotifications();
   const [p, setP] = useState<Profile | null>(null);
   const [openTickets, setOpenTickets] = useState(0);
 
@@ -96,6 +98,21 @@ export default function Home() {
               <div className="font-medium">Cooldown active</div>
               <div className="text-muted-foreground">You can donate again on {format(new Date(cooldown), "PPP")}.</div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {permission !== "granted" && (
+        <Card className="border-accent/30 bg-accent/5">
+          <CardContent className="flex items-center justify-between gap-3 p-4">
+            <div className="flex items-center gap-3">
+              <Bell className="h-5 w-5 text-accent" />
+              <div className="text-sm">
+                <div className="font-medium">Enable live alerts</div>
+                <div className="text-muted-foreground">Get notified immediately when blood is needed.</div>
+              </div>
+            </div>
+            <Button size="sm" onClick={requestPermission}>Enable</Button>
           </CardContent>
         </Card>
       )}
